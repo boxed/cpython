@@ -1591,6 +1591,17 @@ class GrammarTests(unittest.TestCase):
         with self.assertRaises(Done):
             foo().send(None)
 
+    def test_short_kwargs(self):
+        def foo(a, b, c):
+            pass
+        foo(*, a, b)
+        foo(*, a, b,)
+        foo(a, *, b)
+        foo(a, *, b,)
+        foo(a, b, *)
+        foo(a, b, *,)
+
+
 
 if __name__ == '__main__':
     unittest.main()

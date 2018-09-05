@@ -2699,23 +2699,31 @@ ast_for_call(struct compiling *c, const node *n, expr_ty func, bool allowgen)
 {
     /*
       arglist: argument (',' argument)*  [',']
-      argument: ( test [comp_for] | '*' test | test '=' test | '**' test )
+      argument: ( test [comp_for] | '*' [test] | test '=' test | '**' test )
     */
 
-    int i, nargs, nkeywords;
+    int i, nargs, nkeywords, nkeywordshortform;
     int ndoublestars;
     asdl_seq *args;
     asdl_seq *keywords;
 
     REQ(n, arglist);
 
+    /* count the number of args and kwargs to know how much memory to allocate */
     nargs = 0;
     nkeywords = 0;
+    nkeywordshortform = 0;
     for (i = 0; i < NCH(n); i++) {
         node *ch = CHILD(n, i);
         if (TYPE(ch) == argument) {
-            if (NCH(ch) == 1)
-                nargs++;
+            if (NCH(ch) == 1) {
+                if (TYPE(CHILD(ch, 0)) == STAR)
+                    nkeywordshortform = 1;
+                else if (nkeywordshortform)
+                    nkeywords++;
+                else 
+                    nargs++;
+            }
             else if (TYPE(CHILD(ch, 1)) == comp_for) {
                 nargs++;
                 if (!allowgen) {
@@ -2745,30 +2753,58 @@ ast_for_call(struct compiling *c, const node *n, expr_ty func, bool allowgen)
     nargs = 0;  /* positional arguments + iterable argument unpackings */
     nkeywords = 0;  /* keyword arguments + keyword argument unpackings */
     ndoublestars = 0;  /* just keyword argument unpackings */
+	nkeywordshortform = 0;  /* keyword short form */
     for (i = 0; i < NCH(n); i++) {
         node *ch = CHILD(n, i);
         if (TYPE(ch) == argument) {
             expr_ty e;
             node *chch = CHILD(ch, 0);
             if (NCH(ch) == 1) {
-                /* a positional argument */
-                if (nkeywords) {
-                    if (ndoublestars) {
-                        ast_error(c, chch,
-                                "positional argument follows "
-                                "keyword argument unpacking");
-                    }
-                    else {
-                        ast_error(c, chch,
-                                "positional argument follows "
-                                "keyword argument");
-                    }
-                    return NULL;
+                if (TYPE(chch) == STAR) {
+                    /* keyword argument short form marker */
+                    nkeywordshortform = 1;
                 }
-                e = ast_for_expr(c, chch);
-                if (!e)
-                    return NULL;
-                asdl_seq_SET(args, nargs++, e);
+                else if (nkeywordshortform) {
+                    /* keyword argument short form */
+                    keyword_ty kw;
+                    identifier key, tmp;
+                    int k;
+
+                    e = ast_for_expr(c, chch);
+                    key = e->v.Name.id;
+                    for (k = 0; k < nkeywords; k++) {
+                        tmp = ((keyword_ty)asdl_seq_GET(keywords, k))->arg;
+                        if (tmp && !PyUnicode_Compare(tmp, key)) {
+                            ast_error(c, chch,
+                                    "keyword argument repeated");
+                            return NULL;
+                        }
+                    }
+                    kw = keyword(key, e, c->c_arena);
+                    if (!kw)
+                        return NULL;
+                    asdl_seq_SET(keywords, nkeywords++, kw);
+				}
+				else {
+                    /* a positional argument */
+                    if (nkeywords) {
+                        if (ndoublestars) {
+                            ast_error(c, chch,
+                                    "positional argument follows "
+                                    "keyword argument unpacking");
+	                    }
+	                    else {
+	                        ast_error(c, chch,
+                                    "positional argument follows "
+                                    "keyword argument");
+                        }
+                        return NULL;
+                    }
+                    e = ast_for_expr(c, chch);
+                    if (!e)
+                        return NULL;
+                    asdl_seq_SET(args, nargs++, e);					
+                }
             }
             else if (TYPE(chch) == STAR) {
                 /* an iterable argument unpacking */

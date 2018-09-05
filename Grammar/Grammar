@@ -136,7 +136,7 @@ arglist: argument (',' argument)*  [',']
 argument: ( test [comp_for] |
             test '=' test |
             '**' test |
-            '*' test )
+            '*' [test])
 
 comp_iter: comp_for | comp_if
 sync_comp_for: 'for' exprlist 'in' or_test [comp_iter]
